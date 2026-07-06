@@ -1,105 +1,130 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#121212"
-    android:padding="16dp">
+    android:background="#0D0D0D">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Widget Preview"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp"/>
-
-    <RelativeLayout
-        android:id="@+id/widgetPreviewContainer"
+    <!-- ================= Pantalla #1: Conectarnos al spotify ================= -->
+    <LinearLayout
+        android:id="@+id/connectScreen"
         android:layout_width="match_parent"
-        android:layout_height="180dp"
-        android:background="@drawable/bg_glass_preview"
-        android:padding="16dp"
-        android:layout_marginBottom="32dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp">
 
-        <ImageView
-            android:id="@+id/previewAlbumArt"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_centerVertical="true"
-            android:src="@android:drawable/ic_menu_gallery"
-            android:background="#33FFFFFF"/>
-
-        <LinearLayout
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_toEndOf="@id/previewAlbumArt"
-            android:layout_centerVertical="true"
-            android:layout_marginStart="16dp"
-            android:orientation="vertical">
+            android:text="Glass Widget Builder"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Conecta tu cuenta de Spotify para ver tu música en vivo"
+            android:textColor="#B3FFFFFF"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginBottom="32dp"/>
+
+        <Button
+            android:id="@+id/connectButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Conectar con Spotify"
+            android:backgroundTint="#1DB954"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"/>
+
+    </LinearLayout>
+
+    <!-- ================= Pantalla #2: Musica en vivo ================= -->
+    <LinearLayout
+        android:id="@+id/liveScreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Live preview"
+            android:textColor="#80FFFFFF"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Portada grande -->
+        <ImageView
+            android:id="@+id/albumArt"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:scaleType="centerCrop"
+            android:src="@android:drawable/ic_menu_gallery"/>
+
+        <!-- Tarjeta de vidrio con la info -->
+        <RelativeLayout
+            android:id="@+id/glassCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_glass_preview"
+            android:padding="20dp"
+            android:layout_marginTop="16dp">
 
             <TextView
+                android:id="@+id/trackTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Syndrom"
+                android:text="Nombre de la canción"
                 android:textColor="#FFFFFF"
-                android:textSize="18sp"
+                android:textSize="20sp"
                 android:textStyle="bold"/>
 
             <TextView
+                android:id="@+id/trackArtist"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Viktor Sheen"
+                android:layout_below="@id/trackTitle"
+                android:text="Artista"
                 android:textColor="#B3FFFFFF"
-                android:textSize="14sp"/>
-        </LinearLayout>
-    </RelativeLayout>
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Widget Customization"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="16dp"/>
+            <TextView
+                android:id="@+id/currentTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/trackArtist"
+                android:text="0:00"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Corner Radius (Esquinas)"
-        android:textColor="#B3FFFFFF"
-        android:textSize="14sp"/>
-    <SeekBar
-        android:id="@+id/seekBarRadius"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="50"
-        android:progress="28"
-        android:layout_marginBottom="16dp"/>
+            <TextView
+                android:id="@+id/totalTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/trackArtist"
+                android:layout_alignParentEnd="true"
+                android:text="0:00"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Glass Opacity (Transparencia)"
-        android:textColor="#B3FFFFFF"
-        android:textSize="14sp"/>
-    <SeekBar
-        android:id="@+id/seekBarOpacity"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="100"
-        android:progress="30"
-        android:layout_marginBottom="32dp"/>
+            <SeekBar
+                android:id="@+id/progressBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/currentTime"
+                android:max="100"
+                android:progress="0"/>
 
-    <Button
-        android:id="@+id/btnPublish"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Publish Widget"
-        android:backgroundTint="#1DB954"
-        android:textColor="#FFFFFF"
-        android:textStyle="bold"/>
+        </RelativeLayout>
 
-</LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>
