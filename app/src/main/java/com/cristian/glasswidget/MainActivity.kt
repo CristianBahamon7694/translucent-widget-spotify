@@ -3,7 +3,6 @@ package com.cristian.glasswidget
 import android.os.Bundle
 import android.util.Log
 import android.widget.Button
-import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.ImageView
 import androidx.appcompat.app.AppCompatActivity
@@ -11,18 +10,25 @@ import android.content.Intent
 import android.view.View
 import android.os.Handler
 import android.os.Looper
+import androidx.palette.graphics.Palette
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import android.widget.LinearLayout
+import android.widget.FrameLayout
 
 import com.spotify.sdk.android.auth.AuthorizationClient
 import com.spotify.sdk.android.auth.AuthorizationRequest
 import com.spotify.sdk.android.auth.AuthorizationResponse
 
+
 class MainActivity : AppCompatActivity() {
 
+    // ================= Vistas =================
     private lateinit var connectScreen: LinearLayout
     private lateinit var liveScreen: LinearLayout
     private lateinit var connectButton: Button
@@ -30,27 +36,27 @@ class MainActivity : AppCompatActivity() {
     private lateinit var trackTitle: TextView
     private lateinit var trackArtist: TextView
     private lateinit var albumArt: ImageView
-    private lateinit var progressBar: SeekBar
+
+    // PrismalSlider en vez de SeekBar: renderiza el thumb con efecto de vidrio (Prismal library)
+    private lateinit var progressBar: com.matrix.prismal.PrismalSlider
     private lateinit var currentTimeText: TextView
     private lateinit var totalTimeText: TextView
+    private lateinit var rootBackground: FrameLayout
 
-
-
+    // ================= Estado del reproductor =================
     private val progressHandler = Handler(Looper.getMainLooper())
     private var lastKnownPosition = 0L
     private var trackDuration = 0L
     private var lastUpdateTimestamp = 0L
-
     private var isPaused = false
+    private var spotifyAppRemote: SpotifyAppRemote? = null
 
+    // ================= Config Spotify =================
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
     private val redirectUri = "com.cristian.glasswidget://callback"
 
-    companion object {
-        private const val AUTH_TOKEN_REQUEST_CODE = 1337
-        private const val TAG = "SpotifyLog"
-    }
-    private var spotifyAppRemote: SpotifyAppRemote? = null
+
+    // ================= Ciclo de vida de Activity =================
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,7 +66,40 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, intent: Intent?) {
+        super.onActivityResult(requestCode, resultCode, intent)
+
+        if (requestCode == AUTH_TOKEN_REQUEST_CODE) {
+            val response = AuthorizationClient.getResponse(resultCode, intent)
+
+            when (response.type) {
+                AuthorizationResponse.Type.TOKEN -> {
+                    Log.d(TAG, "Token recibido y conectamos App Remote.")
+                    connectToSpotify()
+                }
+                AuthorizationResponse.Type.ERROR -> {
+                    Log.e(TAG, "Error de autorización: ${response.error}")
+                }
+                else -> {
+                    Log.d(TAG, "El usuario canceló el login")
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        spotifyAppRemote?.let {
+            SpotifyAppRemote.disconnect(it)
+            Log.d(TAG, "Desconectado de Spotify (Ahorrando batería)")
+        }
+    }
+
+
+    // ================= Setup inicial =================
+
     private fun initializeViews() {
+        rootBackground = findViewById(R.id.rootBackground)
         connectScreen = findViewById(R.id.connectScreen)
         liveScreen = findViewById(R.id.liveScreen)
         connectButton = findViewById(R.id.connectButton)
@@ -80,6 +119,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    // ================= Autenticación con Spotify =================
+
+    // Abrimos el login manualmente (en vez de dejar que App Remote lo haga solo)
+    // porque el flujo automático se bloquea en Android 14+ por restricciones de
+    // seguridad (Background Activity Launch). Ver README para más detalle.
+    private fun iniciarLoginSpotify() {
+        val builder = AuthorizationRequest.Builder(clientId, AuthorizationResponse.Type.TOKEN, redirectUri)
+        builder.setScopes(arrayOf("app-remote-control", "user-read-private"))
+        val request = builder.build()
+
+        AuthorizationClient.openLoginActivity(this, AUTH_TOKEN_REQUEST_CODE, request)
+    }
 
     private fun connectToSpotify() {
         val connectionParams = ConnectionParams.Builder(clientId)
@@ -121,6 +173,7 @@ class MainActivity : AppCompatActivity() {
                             ?.getImage(track.imageUri)
                             ?.setResultCallback { bitmap ->
                                 albumArt.setImageBitmap(bitmap)
+                                applyDynamicBackground(bitmap)
                             }
                     }
                 }
@@ -134,6 +187,9 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+
+    // ================= Progreso de reproducción =================
+
     private val progressRunnable = object : Runnable {
         override fun run() {
             val estimatedPosition = if (isPaused) {
@@ -145,7 +201,7 @@ class MainActivity : AppCompatActivity() {
 
             if (trackDuration > 0) {
                 val progressPercent = ((estimatedPosition * 100) / trackDuration).toInt()
-                progressBar.progress = progressPercent.coerceIn(0, 100)
+                progressBar.setValue(progressPercent.coerceIn(0, 100).toFloat())
                 currentTimeText.text = formatTime(estimatedPosition)
             }
 
@@ -165,43 +221,31 @@ class MainActivity : AppCompatActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
-    // Abrimos el login manualmente (en vez de dejar que App Remote lo haga solo)
-    // porque el flujo automático se bloquea en Android 14+ por restricciones de
-    // seguridad (Background Activity Launch). Ver README para más detalle.
-    private fun iniciarLoginSpotify() {
-        val builder = AuthorizationRequest.Builder(clientId, AuthorizationResponse.Type.TOKEN, redirectUri)
-        builder.setScopes(arrayOf("app-remote-control", "user-read-private"))
-        val request = builder.build()
 
-        AuthorizationClient.openLoginActivity(this, AUTH_TOKEN_REQUEST_CODE, request)
-    }
+    // ================= Fondo dinámico según la portada =================
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, intent: Intent?) {
-        super.onActivityResult(requestCode, resultCode, intent)
+    private fun applyDynamicBackground(bitmap: Bitmap) {
+        Palette.from(bitmap).generate { palette ->
+            val dominantColor = palette?.getDominantColor(Color.parseColor("#0A0A0A"))
+                ?: Color.parseColor("#0A0A0A")
+            val darkMutedColor = palette?.getDarkMutedColor(Color.parseColor("#000000"))
+                ?: Color.parseColor("#000000")
 
-        if (requestCode == AUTH_TOKEN_REQUEST_CODE) {
-            val response = AuthorizationClient.getResponse(resultCode, intent)
+            val gradient = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(dominantColor, darkMutedColor)
+            )
+            rootBackground.background = gradient
 
-            when (response.type) {
-                AuthorizationResponse.Type.TOKEN -> {
-                    Log.d(TAG, "Token recibido y conectamos App Remote.")
-                    connectToSpotify()
-                }
-                AuthorizationResponse.Type.ERROR -> {
-                    Log.e(TAG, "Error de autorización: ${response.error}")
-                }
-                else -> {
-                    Log.d(TAG, "El usuario canceló el login")
-                }
-            }
+            progressBar.updateBackground()
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        spotifyAppRemote?.let {
-            SpotifyAppRemote.disconnect(it)
-            Log.d(TAG, "Desconectado de Spotify (Ahorrando batería)")
-        }
+
+    // ================= Constantes =================
+
+    companion object {
+        private const val AUTH_TOKEN_REQUEST_CODE = 1337
+        private const val TAG = "SpotifyLog"
     }
 }

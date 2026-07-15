@@ -66,4 +66,7 @@ dependencies {
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
     implementation("com.spotify.android:auth:2.1.1")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("com.github.styropyr0:Prismal:v1.0.3")
+
 }

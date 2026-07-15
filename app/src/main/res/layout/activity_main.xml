@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootBackground"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0D0D0D">
@@ -47,35 +49,42 @@
         android:id="@+id/liveScreen"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:gravity="center_vertical"
         android:orientation="vertical"
         android:padding="16dp"
         android:visibility="gone">
 
+        <!-- Portada grande -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="12dp"
             android:text="Live preview"
             android:textColor="#80FFFFFF"
-            android:textSize="13sp"
-            android:layout_marginBottom="8dp"/>
+            android:textSize="13sp" />
 
-        <!-- Portada grande -->
         <ImageView
             android:id="@+id/albumArt"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_width="320dp"
+            android:layout_height="320dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/bg_rounded_shape"
+            android:clipToOutline="true"
+            android:elevation="12dp"
+            android:outlineProvider="background"
             android:scaleType="centerCrop"
-            android:src="@android:drawable/ic_menu_gallery"/>
+            android:src="@android:drawable/ic_menu_gallery" />
 
         <!-- Tarjeta de vidrio con la info -->
         <RelativeLayout
             android:id="@+id/glassCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:background="@drawable/bg_glass_preview"
-            android:padding="20dp"
-            android:layout_marginTop="16dp">
+            android:padding="20dp">
 
             <TextView
                 android:id="@+id/trackTitle"
@@ -84,44 +93,54 @@
                 android:text="Nombre de la canción"
                 android:textColor="#FFFFFF"
                 android:textSize="20sp"
-                android:textStyle="bold"/>
+                android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/trackArtist"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_below="@id/trackTitle"
+                android:layout_marginBottom="16dp"
                 android:text="Artista"
                 android:textColor="#B3FFFFFF"
-                android:textSize="14sp"
-                android:layout_marginBottom="16dp"/>
+                android:textSize="14sp" />
 
-            <TextView
-                android:id="@+id/currentTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/trackArtist"
-                android:text="0:00"
-                android:textColor="#B3FFFFFF"
-                android:textSize="12sp"/>
-
-            <TextView
-                android:id="@+id/totalTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_below="@id/trackArtist"
-                android:layout_alignParentEnd="true"
-                android:text="0:00"
-                android:textColor="#B3FFFFFF"
-                android:textSize="12sp"/>
-
-            <SeekBar
-                android:id="@+id/progressBar"
+            <!-- Fila horizontal: tiempo actual + barra + tiempo total -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_below="@id/currentTime"
-                android:max="100"
-                android:progress="0"/>
+                android:layout_below="@id/trackArtist"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/currentTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0:00"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp" />
+
+                <com.matrix.prismal.PrismalSlider
+                    android:id="@+id/progressBar"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    app:psl_maxValue="100"
+                    app:psl_trackColor="#FFFFFF"
+                    app:psl_thumbCornerRadius="12dp" />
+
+                <TextView
+                    android:id="@+id/totalTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0:00"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp" />
+
+            </LinearLayout>
 
         </RelativeLayout>
 
