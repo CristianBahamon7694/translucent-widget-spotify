@@ -45,11 +45,18 @@ class MainActivity : AppCompatActivity() {
 
     // ================= Estado del reproductor =================
     private val progressHandler = Handler(Looper.getMainLooper())
+    private val seekDebounceHandler = Handler(Looper.getMainLooper())
+    private var pendingSeekRunnable: Runnable? = null
+
     private var lastKnownPosition = 0L
     private var trackDuration = 0L
     private var lastUpdateTimestamp = 0L
     private var isPaused = false
     private var spotifyAppRemote: SpotifyAppRemote? = null
+    // Evita que el ticker automático (cada 500ms) dispare un "seek" innecesario a Spotify
+    private var isProgrammaticUpdate = false
+    // Guarda el URI de la canción actual, para detectar si realmente cambió (evita fades innecesarios en seek)
+    private var currentTrackUri: String? = null
 
     // ================= Config Spotify =================
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
@@ -87,12 +94,29 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Si ya estábamos en la pantalla "live" (o sea, ya nos habíamos conectado antes),
+        // reconectamos para traer el estado actual de Spotify — puede que la canción
+        // haya cambiado mientras estábamos en segundo plano.
+        if (liveScreen.visibility == View.VISIBLE) {
+            connectToSpotify()
+        }
+    }
+
     override fun onStop() {
         super.onStop()
+
+        // Detenemos el contador mientras la app no está visible,
+        // para no seguir calculando con datos que van a quedar desactualizados.
+        progressHandler.removeCallbacks(progressRunnable)
+
+
         spotifyAppRemote?.let {
             SpotifyAppRemote.disconnect(it)
             Log.d(TAG, "Desconectado de Spotify (Ahorrando batería)")
         }
+        spotifyAppRemote = null
     }
 
 
@@ -116,6 +140,30 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         connectButton.setOnClickListener {
             iniciarLoginSpotify()
+        }
+
+        progressBar.setOnValueChangedListener { newValue ->
+            if (isProgrammaticUpdate) return@setOnValueChangedListener
+
+            if (trackDuration > 0) {
+                val seekPositionMs = ((newValue / 100f) * trackDuration).toLong()
+
+                // Actualizamos la UI/estado local al instante (se siente fluido mientras arrastras)
+                lastKnownPosition = seekPositionMs
+                lastUpdateTimestamp = System.currentTimeMillis()
+                currentTimeText.text = formatTime(seekPositionMs)
+
+                // Cancelamos cualquier seekTo pendiente de un movimiento anterior muy reciente
+                pendingSeekRunnable?.let { seekDebounceHandler.removeCallbacks(it) }
+
+                // Programamos un nuevo seekTo, que solo se ejecutará si no llega otro
+                // movimiento en los próximos 200ms
+                pendingSeekRunnable = Runnable {
+                    spotifyAppRemote?.playerApi?.seekTo(seekPositionMs)
+                    Log.d(TAG, "Seek aplicado a: ${formatTime(seekPositionMs)}")
+                }
+                seekDebounceHandler.postDelayed(pendingSeekRunnable!!, 200)
+            }
         }
     }
 
@@ -158,10 +206,6 @@ class MainActivity : AppCompatActivity() {
                     if (track != null) {
                         Log.d(TAG, "Sonando ahora: ${track.name} de ${track.artist.name}")
 
-                        trackTitle.text = track.name
-                        trackArtist.text = track.artist.name
-
-                        // Guardamos la posición/duración reales que nos dio Spotify en este instante
                         trackDuration = track.duration
                         lastKnownPosition = playerState.playbackPosition
                         lastUpdateTimestamp = System.currentTimeMillis()
@@ -169,12 +213,17 @@ class MainActivity : AppCompatActivity() {
 
                         totalTimeText.text = formatTime(trackDuration)
 
-                        spotifyAppRemote?.imagesApi
-                            ?.getImage(track.imageUri)
-                            ?.setResultCallback { bitmap ->
-                                albumArt.setImageBitmap(bitmap)
-                                applyDynamicBackground(bitmap)
-                            }
+                        // Solo animamos si la canción es DIFERENTE a la que ya teníamos
+                        if (track.uri != currentTrackUri) {
+                            currentTrackUri = track.uri
+
+                            spotifyAppRemote?.imagesApi
+                                ?.getImage(track.imageUri)
+                                ?.setResultCallback { bitmap ->
+                                    animateTrackChange(track.name, track.artist.name, bitmap)
+                                    applyDynamicBackground(bitmap)
+                                }
+                        }
                     }
                 }
 
@@ -201,7 +250,11 @@ class MainActivity : AppCompatActivity() {
 
             if (trackDuration > 0) {
                 val progressPercent = ((estimatedPosition * 100) / trackDuration).toInt()
+
+                isProgrammaticUpdate = true
                 progressBar.setValue(progressPercent.coerceIn(0, 100).toFloat())
+                isProgrammaticUpdate = false
+
                 currentTimeText.text = formatTime(estimatedPosition)
             }
 
@@ -235,9 +288,34 @@ class MainActivity : AppCompatActivity() {
                 GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(dominantColor, darkMutedColor)
             )
-            rootBackground.background = gradient
 
+            rootBackground.background = gradient
             progressBar.updateBackground()
+        }
+    }
+
+    private fun animateTrackChange(newTitle: String, newArtist: String, newBitmap: Bitmap) {
+        val fadeOutDuration = 150L
+        val fadeInDuration = 200L
+
+        val viewsToFade = listOf(albumArt, trackTitle, trackArtist)
+
+        viewsToFade.forEach { view ->
+            view.animate()
+                .alpha(0f)
+                .setDuration(fadeOutDuration)
+                .withEndAction {
+                    when (view) {
+                        albumArt -> albumArt.setImageBitmap(newBitmap)
+                        trackTitle -> trackTitle.text = newTitle
+                        trackArtist -> trackArtist.text = newArtist
+                    }
+                    view.animate()
+                        .alpha(1f)
+                        .setDuration(fadeInDuration)
+                        .start()
+                }
+                .start()
         }
     }
 
