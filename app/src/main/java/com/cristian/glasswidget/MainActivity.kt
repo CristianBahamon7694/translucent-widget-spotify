@@ -14,6 +14,9 @@ import androidx.palette.graphics.Palette
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -37,13 +40,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var trackArtist: TextView
     private lateinit var albumArt: ImageView
 
-    // PrismalSlider en vez de SeekBar: renderiza el thumb con efecto de vidrio (Prismal library)
     private lateinit var progressBar: com.matrix.prismal.PrismalSlider
     private lateinit var currentTimeText: TextView
     private lateinit var totalTimeText: TextView
     private lateinit var rootBackground: FrameLayout
 
-    // ================= Estado del reproductor =================
     private val progressHandler = Handler(Looper.getMainLooper())
     private val seekDebounceHandler = Handler(Looper.getMainLooper())
     private var pendingSeekRunnable: Runnable? = null
@@ -53,14 +54,18 @@ class MainActivity : AppCompatActivity() {
     private var lastUpdateTimestamp = 0L
     private var isPaused = false
     private var spotifyAppRemote: SpotifyAppRemote? = null
-    // Evita que el ticker automático (cada 500ms) dispare un "seek" innecesario a Spotify
     private var isProgrammaticUpdate = false
-    // Guarda el URI de la canción actual, para detectar si realmente cambió (evita fades innecesarios en seek)
     private var currentTrackUri: String? = null
 
-    // ================= Config Spotify =================
+    // Guarda lo último mostrado, para restaurar la UI tras un giro sin re-consultar a Spotify
+    private var lastTrackName: String? = null
+    private var lastArtistName: String? = null
+    private var lastAlbumBitmap: Bitmap? = null
+
     private val clientId = BuildConfig.SPOTIFY_CLIENT_ID
     private val redirectUri = "com.cristian.glasswidget://callback"
+
+    private var currentGradientColors: IntArray? = null
 
 
     // ================= Ciclo de vida de Activity =================
@@ -71,6 +76,33 @@ class MainActivity : AppCompatActivity() {
 
         initializeViews()
         setupListeners()
+        hideSystemUI()
+
+        // Restauramos el estado tras un giro de pantalla (Activity recreada)
+        savedInstanceState?.let { state ->
+            val wasShowingLiveScreen = state.getBoolean("wasShowingLiveScreen", false)
+            if (wasShowingLiveScreen) {
+                connectScreen.visibility = View.GONE
+                liveScreen.visibility = View.VISIBLE
+
+                lastTrackName = state.getString("lastTrackName")
+                lastArtistName = state.getString("lastArtistName")
+                @Suppress("DEPRECATION")
+                lastAlbumBitmap = state.getParcelable("lastAlbumBitmap")
+
+                lastTrackName?.let { trackTitle.text = it }
+                lastArtistName?.let { trackArtist.text = it }
+                lastAlbumBitmap?.let {
+                    albumArt.setImageBitmap(it)
+                    applyDynamicBackground(it)
+                }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        hideSystemUI()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, intent: Intent?) {
@@ -96,9 +128,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Si ya estábamos en la pantalla "live" (o sea, ya nos habíamos conectado antes),
-        // reconectamos para traer el estado actual de Spotify — puede que la canción
-        // haya cambiado mientras estábamos en segundo plano.
         if (liveScreen.visibility == View.VISIBLE) {
             connectToSpotify()
         }
@@ -106,17 +135,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-
-        // Detenemos el contador mientras la app no está visible,
-        // para no seguir calculando con datos que van a quedar desactualizados.
         progressHandler.removeCallbacks(progressRunnable)
-
-
         spotifyAppRemote?.let {
             SpotifyAppRemote.disconnect(it)
             Log.d(TAG, "Desconectado de Spotify (Ahorrando batería)")
         }
         spotifyAppRemote = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("wasShowingLiveScreen", ::liveScreen.isInitialized && liveScreen.visibility == View.VISIBLE)
+        outState.putString("lastTrackName", lastTrackName)
+        outState.putString("lastArtistName", lastArtistName)
+        lastAlbumBitmap?.let { outState.putParcelable("lastAlbumBitmap", it) }
     }
 
 
@@ -148,16 +180,12 @@ class MainActivity : AppCompatActivity() {
             if (trackDuration > 0) {
                 val seekPositionMs = ((newValue / 100f) * trackDuration).toLong()
 
-                // Actualizamos la UI/estado local al instante (se siente fluido mientras arrastras)
                 lastKnownPosition = seekPositionMs
                 lastUpdateTimestamp = System.currentTimeMillis()
                 currentTimeText.text = formatTime(seekPositionMs)
 
-                // Cancelamos cualquier seekTo pendiente de un movimiento anterior muy reciente
                 pendingSeekRunnable?.let { seekDebounceHandler.removeCallbacks(it) }
 
-                // Programamos un nuevo seekTo, que solo se ejecutará si no llega otro
-                // movimiento en los próximos 200ms
                 pendingSeekRunnable = Runnable {
                     spotifyAppRemote?.playerApi?.seekTo(seekPositionMs)
                     Log.d(TAG, "Seek aplicado a: ${formatTime(seekPositionMs)}")
@@ -168,11 +196,8 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    // ================= Autenticación con Spotify =================
+    // ================= Autenticacion con Spotify =================
 
-    // Abrimos el login manualmente (en vez de dejar que App Remote lo haga solo)
-    // porque el flujo automático se bloquea en Android 14+ por restricciones de
-    // seguridad (Background Activity Launch). Ver README para más detalle.
     private fun iniciarLoginSpotify() {
         val builder = AuthorizationRequest.Builder(clientId, AuthorizationResponse.Type.TOKEN, redirectUri)
         builder.setScopes(arrayOf("app-remote-control", "user-read-private"))
@@ -184,9 +209,6 @@ class MainActivity : AppCompatActivity() {
     private fun connectToSpotify() {
         val connectionParams = ConnectionParams.Builder(clientId)
             .setRedirectUri(redirectUri)
-            // false porque ya obtuvimos el token nosotros mismos con iniciarLoginSpotify().
-            // Si esto fuera true, el SDK intentaría abrir su propia ventana de permiso
-            // desde un servicio en segundo plano, lo cual Android bloquea desde API 34+ (bug conocido de Spotify SDK).
             .showAuthView(false)
             .build()
 
@@ -197,7 +219,6 @@ class MainActivity : AppCompatActivity() {
                 spotifyAppRemote = appRemote
                 Log.d(TAG, "Conectado a Spotify de forma local.")
 
-                // Ya conectados: ocultamos la pantalla de "Conectar" y mostramos la vista en vivo
                 connectScreen.visibility = View.GONE
                 liveScreen.visibility = View.VISIBLE
 
@@ -213,14 +234,20 @@ class MainActivity : AppCompatActivity() {
 
                         totalTimeText.text = formatTime(trackDuration)
 
-                        // Solo animamos si la canción es DIFERENTE a la que ya teníamos
                         if (track.uri != currentTrackUri) {
                             currentTrackUri = track.uri
 
                             spotifyAppRemote?.imagesApi
                                 ?.getImage(track.imageUri)
                                 ?.setResultCallback { bitmap ->
-                                    animateTrackChange(track.name, track.artist.name, bitmap)
+                                    val cleanTitle = formatToTitleCase(track.name)
+                                    val cleanArtist = formatToTitleCase(track.artist.name)
+
+                                    lastTrackName = cleanTitle
+                                    lastArtistName = cleanArtist
+                                    lastAlbumBitmap = bitmap
+
+                                    animateTrackChange(cleanTitle, cleanArtist, bitmap)
                                     applyDynamicBackground(bitmap)
                                 }
                         }
@@ -267,6 +294,17 @@ class MainActivity : AppCompatActivity() {
         progressHandler.post(progressRunnable)
     }
 
+    private fun hideSystemUI() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+            // Oculta la barra de estado (arriba) y la de navegación (abajo)
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            // Si el usuario desliza desde el borde, las barras aparecen temporalmente y luego se ocultan solas
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
     private fun formatTime(millis: Long): String {
         val totalSeconds = millis / 1000
         val minutes = totalSeconds / 60
@@ -284,14 +322,50 @@ class MainActivity : AppCompatActivity() {
             val darkMutedColor = palette?.getDarkMutedColor(Color.parseColor("#000000"))
                 ?: Color.parseColor("#000000")
 
-            val gradient = GradientDrawable(
-                GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(dominantColor, darkMutedColor)
-            )
+            val newColors = intArrayOf(dominantColor, darkMutedColor)
 
-            rootBackground.background = gradient
+            if (currentGradientColors == null) {
+                // Primera vez (recién conectamos): sin animación, se pinta directo
+                val gradient = GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    newColors
+                )
+                rootBackground.background = gradient
+            } else {
+                // Ya había un fondo antes: animamos la transición de color
+                animateGradientChange(currentGradientColors!!, newColors)
+            }
+
+            currentGradientColors = newColors
             progressBar.updateBackground()
         }
+    }
+
+    private fun animateGradientChange(oldColors: IntArray, newColors: IntArray) {
+        // Creamos un solo animador que va del 0% (0f) al 100% (1f) de la animación
+        val animator = android.animation.ValueAnimator.ofFloat(0f, 1f)
+
+        // Duración de la transición de color del fondo (en milisegundos)
+        animator.duration = 800L
+
+        val evaluator = android.animation.ArgbEvaluator()
+
+        animator.addUpdateListener { animation ->
+            val fraction = animation.animatedFraction
+
+            // Calculamos el color exacto en este milisegundo para ambos lados
+            val topColor = evaluator.evaluate(fraction, oldColors[0], newColors[0]) as Int
+            val bottomColor = evaluator.evaluate(fraction, oldColors[1], newColors[1]) as Int
+
+            // Aplicamos el nuevo fondo
+            val gradient = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(topColor, bottomColor)
+            )
+            rootBackground.background = gradient
+        }
+
+        animator.start()
     }
 
     private fun animateTrackChange(newTitle: String, newArtist: String, newBitmap: Bitmap) {
@@ -316,6 +390,14 @@ class MainActivity : AppCompatActivity() {
                         .start()
                 }
                 .start()
+        }
+    }
+
+    // ================= Limpieza de Texto =================
+
+    private fun formatToTitleCase(text: String): String {
+        return text.lowercase().split(" ").joinToString(" ") { word ->
+            word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
         }
     }
 
